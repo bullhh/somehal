@@ -69,10 +69,7 @@ pub(crate) fn init_regions(args_regions: &[MemoryRegion]) {
         }
     }
 
-    // 添加内核前段预留
-    add_kernel_reserved(&mut regions);
-
-    // 从 RAM 中减去所有非 RAM 区域
+    // 从 RAM 中减去所有非 RAM区域
     subtract_non_ram_from_ram(&mut regions);
 
     // 全局合并
@@ -116,55 +113,6 @@ fn merge_regions(regions: &mut MemoryRegionVec) {
     regions.truncate(write_idx + 1);
 }
 
-fn find_main(regions: &MemoryRegionVec) -> Option<MemoryRegion> {
-    let lma = boot_info().kimage_start_lma as usize;
-    regions
-        .iter()
-        .find(|r| {
-            let is_ram = matches!(r.kind, MemoryRegionKind::Ram);
-            let in_range = r.start <= lma && r.end > lma;
-            is_ram && in_range
-        })
-        .copied()
-}
-
-/// 添加内核前段预留区域
-fn add_kernel_reserved(regions: &mut MemoryRegionVec) -> Option<()> {
-    let mainmem = find_main(regions)?;
-    let rsv_start = mainmem.start;
-
-    unsafe extern "C" {
-        fn _text();
-        fn __kernel_code_end();
-    }
-    // 计算内核代码结束的物理地址
-    let kernel_code_end_phys = __kernel_code_end as usize - boot_info().kcode_offset();
-    let rsv_end = kernel_code_end_phys;
-
-    if rsv_start >= rsv_end {
-        return Some(());
-    }
-
-    // 检查是否已被现有 Reserved 包含
-    for r in regions.iter() {
-        if matches!(r.kind, MemoryRegionKind::Reserved) && r.start <= rsv_start && r.end >= rsv_end
-        {
-            return Some(()); // 已包含，无需添加
-        }
-    }
-
-    // 添加新的预留区域
-    regions
-        .push(MemoryRegion {
-            kind: MemoryRegionKind::Reserved,
-            start: rsv_start,
-            end: rsv_end,
-        })
-        .expect("Memory regions overflow");
-
-    Some(())
-}
-
 /// 从所有 RAM 区域中减去非 RAM 区域（Reserved/Bootloader 等）
 fn subtract_non_ram_from_ram(regions: &mut MemoryRegionVec) {
     // 1. 收集所有非 RAM 区域
@@ -200,7 +148,7 @@ fn subtract_non_ram_from_ram(regions: &mut MemoryRegionVec) {
         .expect("Non-RAM regions overflow");
 
     // 3. 收集所有 RAM 区域
-    let ram_list: heapless::Vec<MemoryRegion, 8> = regions
+    let ram_list: heapless::Vec<MemoryRegion, 64> = regions
         .iter()
         .filter(|r| matches!(r.kind, MemoryRegionKind::Ram))
         .copied()
